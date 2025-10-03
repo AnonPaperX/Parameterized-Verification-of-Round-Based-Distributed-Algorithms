@@ -1,0 +1,457 @@
+-- Running the Model in NuXmv:
+--  Download NuXmv (https://nuxmv.fbk.eu/download.html) and place the current file (Raft-LeaderElection.smv) 
+--  in the same folder as the NuXmv executable. Then go to the terminal and change directory to this
+--  folder and execute in steps:
+--     (1) "./nuXmv -int Raft-LeaderElection.smv" (starts NuXmv in interactive mode with the model file)
+--     (2) "go_msat" (inside the NuXmv shell, enable the IC3 engine)
+--     (3) "check_ltlspec_ic3" (checks all the LTL specifications using IC3)
+
+--==============================================================================
+-- RPT SYNTAX: Raft Leader Election (Crash Failures), jump bound b = 2
+-- Based on Section 5.2 of Ongaro & Ousterhout (USENIX ATC 2014).
+-- https://www.usenix.org/system/files/conference/atc14/atc14-paper-ongaro.pdf
+--==============================================================================
+
+-- Followers may become candidates; servers process vote requests.
+-- We model two followers and a parameterised number of servers.
+-- Randomized election timeouts are abstracted as nondeterministic choices.
+-- A Raft term has two phases: (i) Ready + Nominate and (ii) Vote + Decision.
+--  In our model, a round = one phase: even-numbered rounds are Ready/Nominate; odd-numbered
+--  rounds are Vote/Decision. A term = two consecutive rounds ⟨Nominate, Decision⟩. After 
+--  the Vote phase, the next round is the Nominate phase of the next term.
+
+-- Parameters:
+--   P := { n, t }
+--   -- n: total servers (voters). t allowed faults in servers.
+--
+-- Resilience condition:
+--   rc := (n > 0) & (t >= 0) & (2*t < n)
+--
+--
+-- Control locations (L) and initial locations (I):
+--   L := { drp1, drp2, nom1, nom2, wfv1, wfv2, ldr1, ldr2, rdy0, vot1, vot2 }
+--   I := { drp1, drp2, rdy0 }
+--   Here, drpi, nomi, ldri are follower i’s states; rdy0, vot1, vot2 are server states.
+-- 
+--   --   drp* : follower i passive this term (has not timed out / is not contesting).
+--   --   nom* : follower i has just nominated (became candidate) and broadcast RequestVote.
+--   --   wfv* : follower i waiting for votes after RequestVote.
+--   --   ldr* : follower i achieved majority -> elected leader for the term.
+--   --   rdy0 : any server that has not yet voted in the current term.
+--   --   vot* : server that has voted for a specific candidate in the current term.
+--
+-- Note that drp*, nom*, rdy0 are Nominate phase locations and wfv*, ldr*, vot* are Vote phase locations
+--
+-- Message types (M):
+--   M := { mreq1, mreq2, mvot1, mvot2 }
+--   --  mreq* are RequestVote messages; mvot* are votes (one per server per term).
+--
+-- Broadcast function Bcast : L -> M ∪ { - }
+--   Bcast(drp1) = -
+--   Bcast(drp2) = -
+--   Bcast(nom1) = mreq1
+--   Bcast(nom2) = mreq2
+--   Bcast(wfv1) = -
+--   Bcast(wfv2) = -
+--   Bcast(ldr1) = -
+--   Bcast(ldr2) = -
+--   Bcast(rdy0) = -
+--   Bcast(vot1) = mvot1
+--   Bcast(vot2) = mvot2
+--   -- Upon becoming a candidate (nom*), a node broadcasts RequestVote (mreq*).
+--   -- When a server commits a vote (vot*), it "broadcasts" that vote to candidates.
+--
+-- 
+-- Rules:
+--   Syntax: [frm: <loc>, to: <loc>, guard: <LinArith(M ∪ P)>, type: <0|1>]
+--
+-- Guard abbreviations:
+--   g1 := 2*mvot1 > n        -- strict majority of votes for candidate 1
+--   g2 := 2*mvot2 > n        -- strict majority of votes for candidate 2
+--   g3 := mreq1 > 0          -- observed at least one request from candidate 1
+--   g4 := mreq2 > 0          -- observed at least one request from candidate 2
+--
+-- Followers/Candidates
+-- Nominate -> Decision ----------------------------------------------------------
+-- Candidates upon nomination enters the Decision/Vote phase by entering "wait for vote" location
+-- r1   = [frm: nom1, to: wfv1, guard: TRUE, type: 1]
+-- r2   = [frm: nom2, to: wfv2, guard: TRUE, type: 1]
+-- 
+-- Wait -> Leader ----------------------------------------------------------------
+-- Candidates become leader within the current term once a strict majority is received.
+-- Note that here the Decision phase does not change thus type = 0
+-- r3   = [frm: wfv1, to: ldr1, guard: g1,   type: 0]
+-- r4   = [frm: wfv2, to: ldr2, guard: g2,   type: 0]
+--
+-- Decision -> Nominate (advance term) --------------------------------------------
+-- Candidates in ldr* or wfv* locations move to drp* or nom* locations of next term
+-- r5   = [frm: ldr1, to: drp1, guard: TRUE, type: 1]
+-- r6   = [frm: wfv1, to: drp1, guard: TRUE, type: 1]
+-- r7   = [frm: ldr1, to: nom1, guard: TRUE, type: 1]
+-- r8   = [frm: wfv1, to: nom1, guard: TRUE, type: 1]
+-- r9   = [frm: ldr2, to: drp2, guard: TRUE, type: 1]
+-- r10  = [frm: wfv2, to: drp2, guard: TRUE, type: 1]
+-- r11  = [frm: ldr2, to: nom2, guard: TRUE, type: 1]
+-- r12  = [frm: wfv2, to: nom2, guard: TRUE, type: 1]
+--
+-- Nominate -> Nominate (skip phase, advance term) --------------------------------
+-- Candidates in nom* or drp* locations move to drp* or nom* locations of next term
+-- since Decision phase is skipped type = 2
+-- r13  = [frm: nom1, to: drp1, guard: TRUE, type: 2]
+-- r14  = [frm: drp1, to: drp1, guard: TRUE, type: 2]
+-- r15  = [frm: nom1, to: nom1, guard: TRUE, type: 2]
+-- r16  = [frm: drp1, to: nom1, guard: TRUE, type: 2]
+-- r17  = [frm: nom2, to: drp2, guard: TRUE, type: 2]
+-- r18  = [frm: drp2, to: drp2, guard: TRUE, type: 2]
+-- r19  = [frm: nom2, to: nom2, guard: TRUE, type: 2]
+-- r20  = [frm: drp2, to: nom2, guard: TRUE, type: 2]
+--
+--
+-- Servers
+-- Ready -> Vote  -----------------------------------------------------------------
+-- upon receiving mreq* ready server casts its vote
+-- r21  = [frm: rdy0, to: vot1, guard: g3,   type: 1]
+-- r22  = [frm: rdy0, to: vot2, guard: g4,   type: 1]
+--
+-- Vote -> Ready (advance term) ---------------------------------------------------
+-- r23  = [frm: vot1, to: rdy0, guard: TRUE, type: 1]
+-- r24  = [frm: vot2, to: rdy0, guard: TRUE, type: 1]
+
+-- Ready -> Ready (skip phase, advance term) --------------------------------------
+-- since vote phase is skipped type = 2
+-- r25  = [frm: rdy0, to: rdy0, guard: TRUE, type: 2]
+--
+--==============================================================================
+-- LTL translation of HSCL: Leader Uniqueness
+--==============================================================================
+--
+-- Local history-record counter:
+--   Rldr  -- number of followers in leader locations (ldr1 + ldr2) during 
+--            the current frontier term.
+--
+-- Leader Uniqueness : G(Rldr <= 1)
+
+--==============================================================================
+-- The abstract semantics (RDTS^RIA)
+--==============================================================================
+
+-- The abstract semantics of the above RPT:
+-- (1) Remove received-message detail (RMA); guards g1–g4 are used with their existential counterparts.
+-- (2) Omit process identities (PIA) and use per-location counters.
+-- (3) Strong SSR: processes jump synchronously between phases; those that do not are counted as crashed.
+-- (4) BWA: only record frontier and one before the frontier-round (phase) counter, forget previous- round 
+--     (phase) counters and reuse them for the new term.
+-- (5) Augment states with history record counter (Rldr) to evaluate the LTL formulas.
+-- (6) RIA: abstract away the identity of current phase.
+
+
+MODULE main
+
+-- Parameter counters (frozen: they do not change under transitions)
+
+FROZENVAR 
+  n : integer;    -- Total number of servers (n > 0).
+  t : integer;    -- Crash bound among servers (2*t < n).
+
+-- Phase-windowed location counters (b = 2)
+-- We keep counters for exactly two consecutive phases (“windows”) at any time:
+--   F* = Frontier-round (current phase / round rmax)
+--   L* = Last-round     (immediately previous phase / round rmax-1)
+-- Mapping to Raft phases:
+--   If rmax is even  -> Frontier-round = Nominate,   Last-round = Vote/Decision of privious term.
+--   If rmax is odd   -> Frontier-round = Vote/Decision, Last-round = Nominate of current term.
+-- Only one phase is active at a time; the other window stores the immediately preceding phase.
+-- Both sets of locations appear in both windows for a uniform schema; the semantics ensure that
+-- only locations of the active phase can be non-zero in the Frontier-round .
+
+VAR 
+  Fdrp1 : integer;
+  Fdrp2 : integer; 
+  Fnom1 : integer;
+  Fnom2 : integer; 
+  Fwfv1 : integer;
+  Fwfv2 : integer; 
+  Fldr1 : integer;
+  Fldr2 : integer;
+  Frdy0 : integer;
+  Fvot1 : integer;
+  Fvot2 : integer;
+
+  Ldrp1 : integer;
+  Ldrp2 : integer; 
+  Lnom1 : integer;
+  Lnom2 : integer;
+  Lwfv1 : integer;
+  Lwfv2 : integer;  
+  Lldr1 : integer;
+  Lldr2 : integer;
+  Lrdy0 : integer;
+  Lvot1 : integer;
+  Lvot2 : integer;
+
+-- Phase-windowed message counters
+-- As above, F* refers to the current phase (rmax) and L* to the previous (rmax-1).
+
+VAR
+  Fmreq1 : integer;
+  Fmreq2 : integer;
+  Fmvot1 : integer;
+  Fmvot2 : integer;
+  
+  Lmreq1 : integer;
+  Lmreq2 : integer;
+  Lmvot1 : integer;
+  Lmvot2 : integer;
+
+-- History-record counters
+
+VAR
+  Rldr  : integer;  -- Number of followers that enter ldr1 or ldr2 in the phase rmax, if rmax.
+
+
+-- Although Nominate and Vote/Decision are conceptually disjoint, we model the full location set
+-- in each window. Strong SSR synchronises jumps between phases; BWA retains only Frontier-round and Last-round
+-- window and reuses counters when advancing; RMA/PIA/RIA remove received-message detail, identities,
+-- and explicit phase identity. 
+
+-- Initially:
+--  (1) Parameters satisfy the resilience condition rc.
+--  (2) Frontier-round = Nominate phase: both followers start dropped (drp1, drp2).
+--  (3) All servers start ready (rdy0 = n); no votes have been cast.
+--  (4) All message counters are 0 in both windows (F*, L*).
+--  (5) Last-round location/message counters are 0 (no previous phase yet).
+--  (6) History counters are consistent with locations (Rldr = 0).
+
+INIT
+  n > 0 & t >= 0 & 2*t < n &
+  
+  Fdrp1 = 1 & Fdrp2 = 1 & Fnom1 = 0 & Fnom2 = 0 & Fwfv1 = 0 & Fwfv2 = 0 & Fldr1 = 0 & Fldr2 = 0 &
+  Frdy0 = n & Fvot1 = 0 & Fvot2 = 0 &
+  Ldrp1 = 0 & Ldrp2 = 0 & Lnom1 = 0 & Lnom2 = 0 & Lwfv1 = 0 & Lwfv2 = 0 & Lldr1 = 0 & Lldr2 = 0 &
+  Lrdy0 = 0 & Lvot1 = 0 & Lvot2 = 0 &
+
+  Fmreq1 = 0 & Fmreq2 = 0 &
+  Fmvot1 = 0 & Fmvot2 = 0 &
+  Lmreq1 = 0 & Lmreq2 = 0 &
+  Lmvot1 = 0 & Lmvot2 = 0 &
+
+  Rldr = 0;
+
+
+-- Transitions
+-- Under strong-SSR, the only enabled firings are:
+--   * type = 0 within the frontier-round (round rmax), and
+--   * synchronous macro-jumps that advance the frontier-round by 1 or 2 rounds.
+-- Since there are exactly two type 0 rules that can be fired in the frontier-round there are total of four transitions
+-- first two are local in frontier-round and remaining two are macro jumps that advance the frontier-round by 1 and 2 rounds.
+--
+--
+-- Frontier-round guards (upward-closed):
+DEFINE
+  Fg1c := 2*Fmvot1 > n;
+  Fg2c := 2*Fmvot2 > n;
+  Fg3c := Fmreq1 > 0;
+  Fg4c := Fmreq2 > 0;  
+
+TRANS
+   ( -- Fire type-0 rule r3 = [frm: wfv1, to: ldr1, guard: g1, type: 0] in frontier-round
+     Fwfv1 > 0 & Fg1c &
+     next(Fldr1) = Fldr1 + 1 &
+     next(Fwfv1) = Fwfv1 - 1 &
+
+     -- Frontier-round location counters (others) unchanged
+     next(Fdrp1) = Fdrp1 & next(Fdrp2) = Fdrp2 &
+     next(Fnom1) = Fnom1 & next(Fnom2) = Fnom2 &
+     next(Fwfv2) = Fwfv2 & next(Fldr2) = Fldr2 &
+     next(Frdy0) = Frdy0 & next(Fvot1) = Fvot1 & next(Fvot2) = Fvot2 &
+
+     -- Frontier-round message counters unchanged (no new broadcasts on this step)
+     next(Fmreq1) = Fmreq1 & next(Fmreq2) = Fmreq2 &
+     next(Fmvot1) = Fmvot1 & next(Fmvot2) = Fmvot2 &
+
+     -- Last-round counters unchanged
+     next(Ldrp1) = Ldrp1 & next(Ldrp2) = Ldrp2 &
+     next(Lnom1) = Lnom1 & next(Lnom2) = Lnom2 &
+     next(Lwfv1) = Lwfv1 & next(Lwfv2) = Lwfv2 &
+     next(Lldr1) = Lldr1 & next(Lldr2) = Lldr2 &
+     next(Lrdy0) = Lrdy0 & next(Lvot1) = Lvot1 & next(Lvot2) = Lvot2 &
+
+     next(Lmreq1) = Lmreq1 & next(Lmreq2) = Lmreq2 &
+     next(Lmvot1) = Lmvot1 & next(Lmvot2) = Lmvot2 &
+
+     -- History record updated
+     next(Rldr) = Rldr + 1
+   )
+   |
+   ( -- fire type-0 rule r4 = [frm: wfv2, to: ldr2, guard: g2, type: 0] in frontier-round
+     Fwfv2 > 0 & Fg2c &
+     next(Fldr2) = Fldr2 + 1 &
+     next(Fwfv2) = Fwfv2 - 1 &
+
+     -- Frontier-round location counters (others) unchanged
+     next(Fdrp1) = Fdrp1 & next(Fdrp2) = Fdrp2 &
+     next(Fnom1) = Fnom1 & next(Fnom2) = Fnom2 &
+     next(Fwfv1) = Fwfv1 & next(Fldr1) = Fldr1 &
+     next(Frdy0) = Frdy0 & next(Fvot1) = Fvot1 & next(Fvot2) = Fvot2 &
+
+     -- Frontier-round message counters unchanged (no new broadcasts on this step)
+     next(Fmreq1) = Fmreq1 & next(Fmreq2) = Fmreq2 &
+     next(Fmvot1) = Fmvot1 & next(Fmvot2) = Fmvot2 &
+
+     -- Last-round counters unchanged
+     next(Ldrp1) = Ldrp1 & next(Ldrp2) = Ldrp2 &
+     next(Lnom1) = Lnom1 & next(Lnom2) = Lnom2 &
+     next(Lwfv1) = Lwfv1 & next(Lwfv2) = Lwfv2 &
+     next(Lldr1) = Lldr1 & next(Lldr2) = Lldr2 &
+     next(Lrdy0) = Lrdy0 & next(Lvot1) = Lvot1 & next(Lvot2) = Lvot2 &
+
+     next(Lmreq1) = Lmreq1 & next(Lmreq2) = Lmreq2 &
+     next(Lmvot1) = Lmvot1 & next(Lmvot2) = Lmvot2 &
+
+     -- History record updated
+     next(Rldr) = Rldr + 1
+   )
+   |
+   (
+     -- Single macro jump to the next round of current frontier-round.
+     -- In the next state, the last-round is the frontier-round of current state.
+     -- In the next state, the last-round counters record the counts in the current frontier-round after 
+     -- processes jump: therefore, for every counter x, next(Lx) <= Fx.  
+     -- For each x, (Fx - next(Lx)) is exactly the number of processes in the current frontier-round that fired a 
+     -- type-1 rule and moved to the next round (i.e., into the next state's frontier-round).
+     -- In the next state, the frontier-round counters record 
+     --  (i) the exact number of processes that jumped from the previous frontier round, and 
+     --  (ii) the number of processes in the current last-round that jumped using a type-2 rule.
+    
+     next(Ldrp1) <= Fdrp1 & next(Lnom1) <= Fnom1 & next(Lwfv1) <= Fwfv1 & next(Lldr1) <= Fldr1 & 
+     next(Ldrp2) <= Fdrp2 & next(Lnom2) <= Fnom2 & next(Lwfv2) <= Fwfv2 & next(Lldr2) <= Fldr2 &
+     next(Lrdy0) <= Frdy0 & next(Lvot1) <= Fvot1 & next(Lvot2) <= Fvot2 &
+    
+    -- Next last-round message counters are same as current frontier-round message counters
+    -- current last-round message counters are forgotten
+    
+     next(Lmreq1) = Fmreq1 & next(Lmreq2) = Fmreq2 &
+     next(Lmvot1) = Fmvot1 & next(Lmvot2) = Fmvot2 &
+
+    -- No type 1 rule leave drp* and thus (Fdrp* - next(Ldrp*)) = 0
+    
+     next(Ldrp1) = Fdrp1 & next(Ldrp2) = Fdrp2 &
+
+    -- Next frontier-round counts at wfv* comes from only type 1 rules out of nom* of current frontier-round
+    
+    next(Fwfv1) = Fnom1 - next(Lnom1) &
+    next(Fwfv2) = Fnom2 - next(Lnom2) &
+
+    -- Next frontier-round counts at (drp*, nom*) comes from:
+    --    1) Type 1 rules out of (ldr*, wfv*) of the current frontier-round, and
+    --    2) Type 2 rules out of (drp*, nom*) of the current last-round
+    -- We assume followers do not crash and thus every process in (drp*, nom*) of current last-round jump
+
+    next(Fdrp1) + next(Fnom1) =
+        (Fldr1 - next(Lldr1)) + (Fwfv1 - next(Lwfv1)) + Ldrp1 + Lnom1 &
+    next(Fdrp2) + next(Fnom2) =
+        (Fldr2 - next(Lldr2)) + (Fwfv2 - next(Lwfv2)) + Ldrp2 + Lnom2 &
+    
+    -- Next frontier-round counts at (vot1, vot2) comes from only Type 1 rules out of rdy0 of current frontier-round
+    -- If any of such rule is fired its guard must hold.
+
+    next(Fvot1) + next(Fvot2) = Frdy0 - next(Lrdy0) &
+    (next(Fvot1) > 0 -> Fg3c) & (next(Fvot2) > 0 -> Fg4c) &
+
+    -- Next frontier-round counts at rdy0 comes from:
+    --    1) Type 1 rules out of (vot1, vot2) of the current frontier-round, and
+    --    2) Type 2 rules out of rdy0 of the current last-round
+    -- Servers in rdy0 of last-round that do not jump are considered crashed
+
+    next(Frdy0) <= (Fvot1 - next(Lvot1)) + (Fvot2 - next(Lvot2)) + Lrdy0 &
+
+    -- No jump rule leads to ldr* in the next frontier-round
+    next(Fldr1) = 0 & next(Fldr2) = 0 &
+
+    -- Non-negativity of all next state counters
+
+    next(Ldrp1) >= 0 & next(Lnom1) >= 0 & next(Lwfv1) >= 0 & next(Lldr1) >= 0 & 
+    next(Ldrp2) >= 0 & next(Lnom2) >= 0 & next(Lwfv2) >= 0 & next(Lldr2) >= 0 & 
+    next(Lrdy0) >= 0 & next(Lvot1) >= 0 & next(Lvot2) >= 0 &
+
+    next(Fdrp1) >= 0 & next(Fnom1) >= 0 & next(Fwfv1) >= 0 & next(Fldr1) >= 0 & 
+    next(Fdrp2) >= 0 & next(Fnom2) >= 0 & next(Fwfv2) >= 0 & next(Fldr2) >= 0 &
+    next(Frdy0) >= 0 & next(Fvot1) >= 0 & next(Fvot2) >= 0 &
+    
+    -- Next frontier-round message counters match the counts of processes in the respective locations
+    next(Fmreq1) = next(Fnom1) & next(Fmreq2) = next(Fnom2) &
+    next(Fmvot1) = next(Fvot1) & next(Fmvot2) = next(Fvot2) &
+    
+    -- History record is reset to 0 for new frontier-round
+    next(Rldr) = 0
+   
+   )
+   |
+   ( -- Single macro jump two rounds ahead of the current frontier-round.
+     -- In the next state, all the last-round counters are zero as this round is the round next to the current frontier-round which is being skipped
+     -- In the next state, the frontier-round counters record the counts of processes that could have potentially jumped from current frontier-round with type 2 rules (r13-r20 and r25)
+     -- all these rules lead to either nom* or drp* or rdy0.
+     -- Note: type-2 jumps occur only when processes skip the Decision/Vote phase.
+    
+    next(Fdrp1) + next(Fnom1) <=  Fdrp1 + Fnom1 &
+    next(Fdrp2) + next(Fnom2) <=  Fdrp2 + Fnom2 &
+    next(Frdy0) <= Frdy0 &
+    
+    next(Fdrp1) >= 0 & next(Fdrp2) >= 0 & 
+    next(Fnom1) >= 0 & next(Fnom2) >= 0 &
+    next(Frdy0) >= 0 &
+
+    next(Fwfv1) = 0 & next(Fldr1) = 0 & 
+    next(Fwfv2) = 0 & next(Fldr2) = 0 &
+    next(Fvot1) = 0 & next(Fvot2) = 0 &
+    
+    -- Next frontier-round message counters match the counts of processes in the respective locations
+    next(Fmreq1) = next(Fnom1) & next(Fmreq2) = next(Fnom2) &
+    next(Fmvot1) = 0 & next(Fmvot2) = 0 &
+    
+    -- In the next state, all the last-round counters are zero
+    next(Ldrp1) = 0 & next(Lnom1) = 0 & next(Lwfv1) = 0 & next(Lldr1) = 0 & 
+    next(Ldrp2) = 0 & next(Lnom2) = 0 & next(Lwfv2) = 0 &  next(Lldr2) = 0 & 
+    next(Lrdy0) = 0 & next(Lvot1) = 0 & next(Lvot2) = 0 &
+
+    next(Lmreq1) = 0 & next(Lmreq2) = 0 &
+    next(Lmvot1) = 0 & next(Lmvot2) = 0 &
+
+    -- History record is reset to 0 for new froniter
+    next(Rldr) = 0
+   );
+
+-- Specification
+
+-- Leader Uniqueness
+LTLSPEC G(Rldr <= 1);
+
+--==============================================================================
+-- Auxiliary Invariants about the Model
+--==============================================================================
+-- To check these invariants:
+--   1. Uncomment them.
+--   2. Follow the steps given at the start of the file. Except in step (3),
+--      execute "check_invar_ic3" instead of "check_ltlspec_ic3".
+--
+-- Invariant 1:
+--   If the current frontier-round represents a Nominate/Ready phase,
+--   then the last-round cannot represent a Nominate/Ready phase.
+-- INVARSPEC (Fdrp1 + Fdrp2 + Fnom1 + Fnom2 + Frdy0 > 0 
+--            -> Ldrp1 + Ldrp2 + Lnom1 + Lnom2 + Lrdy0 = 0);
+--
+-- Invariant 2:
+--   If the current frontier-round represents a Decision/Vote phase,
+--   then the last-round cannot represent a Decision/Vote phase.
+-- INVARSPEC (Fwfv1 + Fwfv2 + Fldr1 + Fldr2 + Fvot1 + Fvot2 > 0 
+--            -> Lwfv1 + Lwfv2 + Lldr1 + Lldr2 + Lvot1 + Lvot2 = 0);
+--
+-- Invariant 3:
+--   The frontier-round never represents both Nominate/Ready and Decision/Vote phase.
+-- INVARSPEC (Fdrp1 + Fdrp2 + Fnom1 + Fnom2 + Frdy0 = 0 
+--            | Fwfv1 + Fwfv2 + Fldr1 + Fldr2 + Fvot1 + Fvot2 = 0);
+--
+-- Invariant 4:
+--   The last-round never represents both Nominate/Ready and Decision/Vote phase.
+-- INVARSPEC (Ldrp1 + Ldrp2 + Lnom1 + Lnom2 + Lrdy0 = 0 
+--            | Lwfv1 + Lwfv2 + Lldr1 + Lldr2 + Lvot1 + Lvot2 = 0);
