@@ -8,7 +8,7 @@
 
 --==============================================================================
 -- RPT SYNTAX: Wrong Raft Leader Election (Crash Failures), jump bound b = 2
--- To beacome a leader instead of requirng strict majority of votes just mojority is provided
+-- Model is same Raft LE except to beacome a leader instead of requirng strict majority of votes just mojority is provided
 -- Based on Section 5.2 of Ongaro & Ousterhout (USENIX ATC 2014).
 -- https://www.usenix.org/system/files/conference/atc14/atc14-paper-ongaro.pdf
 --==============================================================================
