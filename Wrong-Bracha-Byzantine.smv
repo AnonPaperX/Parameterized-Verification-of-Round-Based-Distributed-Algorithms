@@ -7,12 +7,12 @@
 --     (3) "check_ltlspec_ic3" (checks all the LTL specifications using IC3)
 
 --==============================================================================
--- RPT SYNTAX: Bracha (Byzantine Failures), jump bound b = 1
+-- RPT SYNTAX: Wrong Bracha (Byzantine Failures), jump bound b = 1
+-- Model is same as Bracha Byzantine, except that the decision guard for value 0 is relaxed: 
+-- instead of requiring more than 2*t promise 0 messages, it relaxes to more than or equal to 2*t 
 -- The model abstracts away Validate, Reliable Broadcast primitives, 
 -- and models the protocol in Fig. 4 (Bracha, 1987).:
 -- https://www.sciencedirect.com/science/article/pii/089054018790054X).
--- Model is same as Bracha Byzentine, except that the decision guard for value 0 is relaxed: 
--- instead of requiring more than 2*t promise 0 messages, it relaxes to more than or equal to 2*t 
 -- Phase order (per round): Initial -> Ready -> Promise -> (Decide | Initial of next round)
 --==============================================================================
 
