@@ -8,7 +8,7 @@
 
 --==============================================================================
 -- Protocol A (Ben-Or, 1983): https://dl.acm.org/doi/pdf/10.1145/800221.806707
--- Ben-Or Crash except resilence condition 2t < n is dropped
+-- Model is same as Ben-Or Crash except resilence condition 2t < n is dropped
 -- Phase order (per round): Initial -> Promise -> (Decide | Initial of next round)
 --==============================================================================
 
