@@ -288,13 +288,13 @@ TRANS
 -- LTL Specifications
 
 -- Agreement
---LTLSPEC G(Rd0 <= 0) | G(Rd1 <= 0); 
+LTLSPEC G(Rd0 <= 0) | G(Rd1 <= 0); 
 
 -- Validity
--- LTLSPEC (Rs0 <= 0 -> G(Rd0 <= 0)) & (Rs1 <= 0 -> G(Rd1 <= 0)); 
+LTLSPEC (Rs0 <= 0 -> G(Rd0 <= 0)) & (Rs1 <= 0 -> G(Rd1 <= 0)); 
 
 -- Restricted-Termination
--- LTLSPEC F(Rd0 + Rd1 > 0) -> F(Rd0 + Rd1 + Rfail > n - 1);
+LTLSPEC F(Rd0 + Rd1 > 0) -> F(Rd0 + Rd1 + Rfail > n - 1);
 
 -- Termination -- Not satisfied and outputs counterexample
 LTLSPEC (F(Rd0 + Rd1 + Rfail  > n - 1));
