@@ -1,1 +1,1 @@
-# Parameterized-Verification-of-Round-Based-Distributed-Algorithms
+# Parameterized Verification of Round-based Distributed Algorithms via NuXmv
