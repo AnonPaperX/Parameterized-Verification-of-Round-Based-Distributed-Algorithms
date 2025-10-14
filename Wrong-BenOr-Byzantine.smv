@@ -1,0 +1,346 @@
+-- Running the Model in NuXmv:
+--  Download NuXmv (https://nuxmv.fbk.eu/download.html) and place the current file (Wrong-BenOr-Byzantine.smv) 
+--  in the same folder as the NuXmv executable. Then go to the terminal and change directory to this
+--  folder and execute in steps:
+--     (1) "./nuXmv -int Wrong-BenOr-Byzantine.smv" (starts NuXmv in interactive mode with the model file)
+--     (2) "go_msat" (inside the NuXmv shell, enable the IC3 engine)
+--     (3) "check_ltlspec_ic3" (checks all the LTL specifications using IC3)
+
+
+--==============================================================================
+-- RPT SYNTAX: Wrong Ben-Or (Byzantine Failures), jump bound b = 1
+-- Protocol B (Ben-Or, 1983): https://dl.acm.org/doi/pdf/10.1145/800221.806707
+-- Model is same as Ben-Or Byzentine, except that the decision guard is relaxed: 
+-- instead of requiring more than (n + t)/2 promise messages to decide, it only requires a majority of more than n/2.
+-- Phase order (per round): Initial -> Promise -> (Decide | Initial of next round)
+--==============================================================================
+
+-- Parameters:
+--   P := { n, t}
+
+-- Resilience condition:
+--   rc := (n > 0) & (t >= 0) & (5*t < n)
+
+-- Control locations (L) and initial control locations (I):
+--   L := { s0, s1, i0, i1, p0, p1, px, d0, d1, fail }
+--   I := { s0, s1 }
+
+-- Message types (M):
+--   M := { mi0, mi1, mp0, mp1, mpx, mfi0, mfi1, mfp0, mfp1, mfpx }
+
+-- Broadcast function Bcast : L -> M U { - }
+--   Bcast(s0) = -
+--   Bcast(s1) = -
+--   Bcast(i0) = mi0
+--   Bcast(i1) = mi1
+--   Bcast(p0) = mp0
+--   Bcast(p1) = mp1
+--   Bcast(px) = mpx
+--   Bcast(d0) = -
+--   Bcast(d1) = -
+--   Bcast(fail) = nondeterministically chooses subset of message type 
+--                 from {mfi0, mfi1, mfp0, mfp1, mfpx}.
+--
+--                 Note: this is a shorthand. Ideally, each choice would be 
+--                 represented by a distinct control location. For brevity, we 
+--                 encode this nondeterminism implicitly here rather than 
+--                 expanding the state space.
+
+-- Abbreviation:
+--   Q := n - t
+
+-- Rules:
+-- Syntax:
+--   [frm: <loc>, to: <loc>, guard: <LinArith(M U P)>, type: <0|1>]
+
+-- In this model each phase is considered a round and thus all rules are type = 1
+
+-- Guard abbreviations:
+
+-- These guards correspond to those in Ben-Or’s original protocol, with one key
+-- adjustment: a process cannot distinguish between messages from correct and
+-- faulty processes. Therefore, each occurrence of mi0/mi1 is replaced by
+-- (mi0 + mfi0)/(mi1 + mfi1), respectively.  Same for mp0/mp1/mpx.
+-- also g4 and g5 are relaxed
+--
+-- In addition, we explicitly constrain the total number of received messages from faulty 
+-- processes per round to be at most t. This is justified by the assumption that each process
+-- accepts at most one message from every other process. 
+
+--   g1 := (mi0 + mi1 + mfi0 + mfi1 >= Q) & (2*(mi0 + mfi0) > n + t) & (mfi0 + mfi1 <= t)
+--   g2 := (mi0 + mi1 + mfi0 + mfi1 >= Q) & (2*(mi1 + mfi1) > n + t) & (mfi0 + mfi1 <= t)
+--   g3 := (mi0 + mi1 + mfi0 + mfi1 >= Q) & (2*(mi0 + mfi0) <= n + t) & (2*(mi1 + mfi1) <= n + t) & (mfi0 + mfi1 <= t)
+--   g4 := (mp0 + mp1 + mpx + mfp0 + mfp1 + mfpx >= Q) & (2*(mp0 + mfp0) > n) & (mfp0 + mfp1 + mfpx <= t)
+--   g5 := (mp0 + mp1 + mpx + mfp0 + mfp1 + mfpx >= Q) & (2*(mp1 + mfp1) > n) & (mfp0 + mfp1 + mfpx <= t)
+--   g6 := (mp0 + mp1 + mpx + mfp0 + mfp1 + mfpx >= Q) & (2*(mp0 + mfp0) <= n + t) & (2*(mp1 + mfp1) <= n + t) & (mp0 + mfp0 >= t + 1) & (mfp0 + mfp1 + mfpx <= t)
+--   g7 := (mp0 + mp1 + mpx + mfp0 + mfp1 + mfpx >= Q) & (2*(mp0 + mfp0) <= n + t) & (2*(mp1 + mfp1) <= n + t) & (mp1 + mfp1 >= t + 1) & (mfp0 + mfp1 + mfpx <= t)
+--   g8 := (mp0 + mp1 + mpx + mfp0 + mfp1 + mfpx >= Q) & (mp0 + mfp0 < t + 1) & (mp1 + mfp1 < t + 1) & (mfp0 + mfp1 + mfpx <= t)
+
+
+-- Start -> Initial -------------------------------------------------------------
+-- r1  = [frm: s0, to: i0, guard: TRUE, type: 1]
+-- r2  = [frm: s1, to: i1, guard: TRUE, type: 1]
+
+-- Initial -> Promise -----------------------------------------------------------
+-- r3  = [frm: i0, to: p0, guard: g1, type: 1]
+-- r4  = [frm: i1, to: p0, guard: g1, type: 1]
+-- r5  = [frm: i0, to: p1, guard: g2, type: 1]
+-- r6  = [frm: i1, to: p1, guard: g2, type: 1]
+-- r7  = [frm: i0, to: px, guard: g3, type: 1]
+-- r8  = [frm: i1, to: px, guard: g3, type: 1]
+
+-- Promise -> Decide (0/1) -----------------------------------------------------
+-- r9  = [frm: p0, to: d0, guard: g4, type: 1]
+-- r10 = [frm: p1, to: d0, guard: g4, type: 1]
+-- r11 = [frm: px, to: d0, guard: g4, type: 1]
+-- r12 = [frm: p0, to: d1, guard: g5, type: 1]
+-- r13 = [frm: p1, to: d1, guard: g5, type: 1]
+-- r14 = [frm: px, to: d1, guard: g5, type: 1]
+
+-- Promise -> Initial (without coin-flip) --------------------------------------
+-- r15 = [frm: p0, to: i0, guard: g6, type: 1]
+-- r16 = [frm: p1, to: i0, guard: g6, type: 1]
+-- r17 = [frm: px, to: i0, guard: g6, type: 1]
+-- r18 = [frm: p0, to: i1, guard: g7, type: 1]
+-- r19 = [frm: p1, to: i1, guard: g7, type: 1]
+-- r20 = [frm: px, to: i1, guard: g7, type: 1]
+
+-- Promise -> Initial (coin-flip: non-deterministically) -----------------------
+-- r21 = [frm: p0, to: i0, guard: g8, type: 1]
+-- r22 = [frm: p1, to: i0, guard: g8, type: 1]
+-- r23 = [frm: px, to: i0, guard: g8, type: 1]
+-- r24 = [frm: p0, to: i1, guard: g8, type: 1]
+-- r25 = [frm: p1, to: i1, guard: g8, type: 1]
+-- r26 = [frm: px, to: i1, guard: g8, type: 1]
+
+-- Fail -> Fail -------------------------------------------------------------
+-- r27 = [frm: fail, to: fail, guard: TRUE, type: 1]
+
+--==============================================================================
+-- LTL-translated HSCL Spec: Agreement, Validity, Restricted Termination
+--==============================================================================
+
+-- We use cumulative history record counters:
+--   Rd0, Rd1, Rs0, Rs1, Rfail
+-- Here fail is Byzantine failure
+-- All counters are cumulative.
+
+-- LTL over these cumulative counters:
+-- Agreement              : G(Rd0 <= 0) | G(Rd1 <= 0)
+-- Validity-0             : (Rs0 <= 0) -> G(Rd0 <= 0)
+-- Validity-1             : (Rs0 <= 0 -> G(Rd0 <= 0)) & (Rs1 <= 0 -> G(Rd1 <= 0))
+-- Termination            : F(Rd0 + Rd1 + Rfail  > n - 1)
+-- Restricted-Termination : F(Rd0 + Rd1 > 0) -> F(Rd0 + Rd1 + Rfail > n - 1)
+
+--==============================================================================
+-- The abstract semantics (RDTS^RIA)
+--==============================================================================
+
+-- The abstract semantics of the above RPT:
+-- (1) Remove received-message detail (RMA); guards g1–g8 are used with their existential counterparts.
+-- (2) Omit process identities (PIA) and use per-location counters.
+-- (3) Strong SSR: processes jump synchronously between phases.
+-- (4) BWA: once processes jump to the next phase, forget previous-round counters and reuse them for the new phase.
+-- (5) Augment states with history record counters (Rd0, Rd1, Rs0, Rs1, Rfail) to evaluate the LTL formulas.
+-- (6) RIA: abstract away the round and phase identity of the current synchronous phase.
+
+
+MODULE main
+
+-- parameter counters, they are frozen as they don’t change under transitions
+
+FROZENVAR
+  n : integer;     -- # processes 
+  t : integer;     -- Byzantine fault threshold
+
+
+-- Per round location counters
+
+VAR
+  s0  : integer;     -- # correct processes starting round 0 with value 0
+  s1  : integer;     -- # correct processes starting round 0 with value 1
+  i0  : integer;     -- # correct processes proposing 0 
+  i1  : integer;     -- # correct processes proposing 1 
+  p0  : integer;     -- # correct processes promising 0
+  p1  : integer;     -- # correct processes promising 1
+  px  : integer;     -- # correct processes promising X (undecided)
+  d0  : integer;     -- # correct processes decided 0 
+  d1  : integer;     -- # correct processes decided 1 
+  fail : integer;    -- # processes Byzantine faulty
+
+-- Per round message counters
+
+VAR
+  mi0 : integer;      -- # correct broadcasts of 0 in Initial phase
+  mi1 : integer;      -- # correct broadcasts of 1 in Initial phase
+  mp0 : integer;      -- # correct broadcasts of promise-0
+  mp1 : integer;      -- # correct broadcasts of promise-1
+  mpx : integer;      -- # correct broadcasts of promise-X
+  mfi0 : integer;     -- # faulty broadcasts of 0 in Initial phase
+  mfi1 : integer;     -- # faulty broadcasts of 1 in Initial phase
+  mfp0 : integer;     -- # faulty broadcasts of promise-0
+  mfp1 : integer;     -- # faulty broadcasts of promise-1
+  mfpx : integer;     -- # faulty broadcasts of promise-X  
+
+
+-- History record counters
+
+VAR
+  Rs0    : integer;  -- cumulative (across all rounds) counts of # of visits to s0
+  Rs1    : integer;  -- cumulative counts of # of visits to s1
+  Rd0    : integer;  -- cumulative counts of # of visits to d0
+  Rd1    : integer;  -- cumulative counts of # of visits to d1
+  Rfail  : integer;  -- cumulative counts of Byzantine faulty processes
+
+-- Initially:
+--  (1) Parameter counters satisfy the resilience condition.
+--  (2) All processes start in the initial control locations (s0, s1).
+--  (3) All message counters are 0.
+--  (4) History counters match the corresponding location counters.
+
+INIT
+  n > 0 & t >= 0 & 5*t < n &
+
+  s0 >= 0 & s1 >= 0 & fail >= 0 & fail <= t & s0 + s1 + fail = n &
+  i0 = 0 & i1 = 0 &
+  p0 = 0 & p1 = 0 & px = 0 &
+  d0 = 0 & d1 = 0 &
+
+  mi0 = 0 & mi1 = 0 &
+  mp0 = 0 & mp1 = 0 & mpx = 0 &
+  mfi0 = 0 & mfi1 = 0 &
+  mfp0 = 0 & mfp1 = 0 & mfpx = 0 &
+
+  Rs0 = s0 & Rs1 = s1 & 
+  Rd0 = 0 & Rd1 = 0 & Rfail = fail;
+
+-- Macro Update Transitions:
+-- In each phase, the only transition is a jump to the next phase.
+-- All processes perform this jump synchronously.
+-- We use three macro jump transitions: Start -> Initial, Initial -> Promise, Promise -> (Initial | Decide).
+
+-- Before specifying transitions we define the upward closure of guards g1-g8 (see RPT syntax on top)
+ 
+DEFINE Q := n - t;
+
+DEFINE 
+  g1c := (mi0 + mi1 + mfi0 + mfi1 >= Q) & (2*(mi0 + mfi0) > n + t) & 
+         (mi0 + mi1 >= Q - t) & (2*mi0 > n - t);
+  g2c := (mi0 + mi1 + mfi0 + mfi1 >= Q) & (2*(mi1 + mfi1) > n + t) & 
+         (mi0 + mi1 >= Q - t) & (2*mi1 > n - t);
+  g3c := (mi0 + mi1 + mfi0 + mfi1 >= Q) & (2*(mi0 + mfi0) >= n - t) & (2*(mi1 + mfi1) >= n - t) & 
+         (mi0 + mi1 >= Q - t) & (2*mi0 >= n - 3*t) & (2*mi1 >= n - 3*t);
+  g4c := (mp0 + mp1 + mpx + mfp0 + mfp1 + mfpx >= Q) & (2*(mp0 + mfp0) > n) & 
+         (mp0 + mp1 + mpx >= Q - t) & (2*mp0 > n - t);
+  g5c := (mp0 + mp1 + mpx + mfp0 + mfp1 + mfpx >= Q) & (2*(mp1 + mfp1) > n) & 
+         (mp0 + mp1 + mpx >= Q - t) & (2*mp1 > n - t);
+  g6c := (mp0 + mp1 + mpx + mfp0 + mfp1 + mfpx >= Q) & (2*(mp1 + mpx + mfp1 + mfpx) >= n - 3*t) & (2*(mp0 + mpx + mfp0 + mfpx) >= n - 3*t) & (mp0 + mfp0 >= t + 1) & 
+         (mp0 + mp1 + mpx >= Q - t) & (2*(mp1 + mpx) >= n - 5*t) & (2*(mp0 + mpx) >= n - 5*t) & (mp0 >= 1);
+  g7c := (mp0 + mp1 + mpx + mfp0 + mfp1 + mfpx >= Q) & (2*(mp1 + mpx + mfp1 + mfpx) >= n - 3*t) & (2*(mp0 + mpx + mfp0 + mfpx) >= n - 3*t) & (mp1 + mfp1 >= t + 1) & 
+         (mp0 + mp1 + mpx >= Q - t) & (2*(mp1 + mpx) >= n - 5*t) & (2*(mp0 + mpx) >= n - 5*t) & (mp1 >= 1);
+  g8c := (mp0 + mp1 + mpx + mfp0 + mfp1 + mfpx >= Q) & (mp1 + mpx + mfp1 + mfpx >= Q - t) & (mp0 + mpx + mfp0 + mfpx >= Q - t) & 
+         (mp0 + mp1 + mpx >= Q - t) & (mp1 + mpx >= Q - 2*t) & (mp0 + mpx >= Q - 2*t);
+
+
+TRANS
+  ( -- Start -> Initial, enabled if current round is start phase i.e. s0 + s1 > 0
+    s0 + s1 > 0 & 
+    
+    -- reset and update location counters
+    next(i0) = s0 & next(i1) = s1 & next(fail) = fail &
+    next(p0) = 0 & next(p1) = 0 & next(px) = 0 & 
+    next(s0) = 0 & next(s1) = 0 &
+    next(d0) = 0 & next(d1) = 0 & 
+
+    -- reset and update message counters
+    next(mi0) = next(i0) & next(mi1) = next(i1) &
+    next(mp0) = 0 & next(mp1) = 0 & next(mpx) = 0 &
+    next(mfi0) <= next(fail) & next(mfi1) <= next(fail) &
+    next(mfp0) <= next(fail) & next(mfp1) <= next(fail) & next(mfpx) <= next(fail) &
+    next(mfi0) >= 0 & next(mfi1) >= 0 &
+    next(mfp0) >= 0 & next(mfp1) >= 0 & next(mfpx) >= 0 &
+
+    -- update record counters
+    next(Rs0) = Rs0 & next(Rs1) = Rs1 &
+    next(Rd0) = Rd0 & next(Rd1) = Rd1 &
+    next(Rfail) = Rfail 
+
+  )
+  |
+  (
+    -- Initial -> Promise, enabled if current round is a initial phase i.e. i0 + i1 > 0
+    i0 + i1 > 0 &
+
+    -- reset and update location counters
+    next(p0) >= 0 & next(p1) >= 0 & next(px) >= 0 &
+    next(p0) + next(p1) + next(px) = i0 + i1 &
+    next(fail) = fail &
+    next(i0) = 0 & next(i1) = 0 & 
+    next(d0) = 0 & next(d1) = 0 & 
+    next(s0) = 0 & next(s1) = 0 & 
+    
+    -- if some process is moving to location l then then upward closure of some guard targeting l must hold
+    ((next(p0) > 0) -> g1c) & 
+    ((next(p1) > 0) -> g2c) & 
+    ((next(px) > 0) -> g3c) &
+
+    -- reset and update message counters
+    next(mp0) = next(p0) & next(mp1) = next(p1) & next(mpx) = next(px) & 
+    next(mi0) = 0 & next(mi1) = 0 &
+    next(mfi0) <= next(fail) & next(mfi1) <= next(fail) &
+    next(mfp0) <= next(fail) & next(mfp1) <= next(fail) & next(mfpx) <= next(fail) &
+    next(mfi0) >= 0 & next(mfi1) >= 0 &
+    next(mfp0) >= 0 & next(mfp1) >= 0 & next(mfpx) >= 0 &
+
+    -- update record counters
+    next(Rs0) = Rs0 & next(Rs1) = Rs1 &
+    next(Rd0) = Rd0 & next(Rd1) = Rd1 &
+    next(Rfail) = Rfail 
+
+  )
+  | 
+  ( -- Promise -> Initial/Decide, enabled if current round is a promise phase i.e. p0 + p1 + px > 0
+    p0 + p1 + px > 0 &
+
+    -- reset and update location counters
+    next(d0) + next(d1) + next(i0) + next(i1) = p0 + p1 + px &
+    next(d0) >= 0 & next(d1) >= 0 & next(i0) >= 0 & next(i1) >= 0 &
+    next(fail) = fail &
+    next(p0) = 0 & next(p1) = 0 & next(px) = 0 & 
+    next(s0) = 0 & next(s1) = 0 &
+
+    -- if some process is moving to location l then then upward closure of some guard targeting l must hold
+    ((next(d0) > 0) -> g4c) & 
+    ((next(d1) > 0) -> g5c) & 
+    ((next(i0) > 0) -> (g6c | g8c)) & 
+    ((next(i1) > 0) -> (g7c | g8c)) &
+
+    -- reset and update message counters
+    next(mi0) = next(i0) + next(d0) & next(mi1) = next(i1) + next(d1) &
+    next(mp0) = 0 & next(mp1) = 0 & next(mpx) = 0 &
+    next(mfi0) <= next(fail) & next(mfi1) <= next(fail) &
+    next(mfp0) <= next(fail) & next(mfp1) <= next(fail) & next(mfpx) <= next(fail) &
+    next(mfi0) >= 0 & next(mfi1) >= 0 &
+    next(mfp0) >= 0 & next(mfp1) >= 0 & next(mfpx) >= 0 &
+
+    -- update record counters
+    next(Rs0) = Rs0 & next(Rs1) = Rs1 &    
+    next(Rd0) = Rd0 + next(d0) & next(Rd1) = Rd1 + next(d1) &
+    next(Rfail) = Rfail 
+
+  );
+
+
+-- LTL Specifications (Not satisfied and outputs counterexample)
+
+-- Agreement
+LTLSPEC G(Rd0 <= 0) | G(Rd1 <= 0); 
+
+-- Validity
+LTLSPEC (Rs0 <= 0 -> G(Rd0 <= 0)) & (Rs1 <= 0 -> G(Rd1 <= 0)); 
+
+-- Restricted-Termination
+LTLSPEC F(Rd0 + Rd1 > 0) -> F(Rd0 + Rd1 + Rfail  > n - 1);
+
+-- Termination
+LTLSPEC (F(Rd0 + Rd1 + Rfail  > n - 1));
