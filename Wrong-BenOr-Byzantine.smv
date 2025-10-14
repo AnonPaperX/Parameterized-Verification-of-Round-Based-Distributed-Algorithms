@@ -9,9 +9,9 @@
 
 --==============================================================================
 -- RPT SYNTAX: Wrong Ben-Or (Byzantine Failures), jump bound b = 1
--- Protocol B (Ben-Or, 1983): https://dl.acm.org/doi/pdf/10.1145/800221.806707
 -- Model is same as Ben-Or Byzentine, except that the decision guard is relaxed: 
 -- instead of requiring more than (n + t)/2 promise messages to decide, it only requires a majority of more than n/2.
+-- Protocol B (Ben-Or, 1983): https://dl.acm.org/doi/pdf/10.1145/800221.806707
 -- Phase order (per round): Initial -> Promise -> (Decide | Initial of next round)
 --==============================================================================
 
